@@ -126,6 +126,22 @@ describe('CLI', () => {
     expect(res.stdout).toMatch(/^Generated new RSA key with kid "[\w-]+"$/m);
     expect(res.stdout).toMatch(/^PEM-encoded key written to file "[\w-]+\.pem"\.$/m);
   });
+
+  it('should allow starting management API', async () => {
+    const res = await executeCli('-m', '--management-port', '0');
+
+    expect(res).toEqual({
+      result: expect.any(Object),
+      exitCode: undefined,
+      stdout: expect.any(String),
+      stderr: '',
+    });
+
+    expect(res.stdout).toMatch(/^Starting Management API for OAuth 2 server$/m);
+    expect(res.stdout).toMatch(/^Starting OAuth 2 server$/m);
+    expect(res.stdout).toMatch(/^OAuth 2 server listening on http:\/\/.+?:\d+$/m);
+    expect(res.stdout).toMatch(/^OAuth 2 issuer is http:\/\/localhost:\d+$/m);
+  });
 });
 
 async function executeCli(...args) {

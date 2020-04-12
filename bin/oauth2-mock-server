@@ -19,7 +19,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { OAuth2Server } = require('..');
+const { OAuth2Server, ManagementServer } = require('..');
 
 /* eslint no-console: off */
 
@@ -29,6 +29,11 @@ const defaultOptions = {
   keys: [],
   saveJWK: false,
   savePEM: false,
+  management: {
+    enabled: false,
+    host: '0.0.0.0',
+    port: 8090,
+  },
 };
 
 module.exports = cli(...process.argv.slice(2));
@@ -69,6 +74,15 @@ function parseCliArgs(args) {
       case '-p':
         opts.port = parsePort(args.shift());
         break;
+      case '-m':
+        opts.management.enabled = true;
+        break;
+      case '--management-address':
+        opts.management.host = args.shift();
+        break;
+      case '--management-port':
+        opts.management.port = parsePort(args.shift());
+        break;
       case '--jwk':
         opts.keys.push(parseJWK(args.shift()));
         break;
@@ -84,6 +98,14 @@ function parseCliArgs(args) {
       default:
         throw new Error(`Unrecognized option '${arg}'.`);
     }
+  }
+
+  if (opts.management.enabled
+    || typeof opts.management.host === 'string'
+    || typeof opts.management.port === 'number') {
+    opts.management.enabled = true;
+    opts.management.host = opts.management.host || '0.0.0.0';
+    opts.management.port = opts.management.port || 9000;
   }
 
   return opts;
@@ -103,6 +125,20 @@ Options:
                     If omitted, 8080 will be used.
                     If 0 is provided, the operating system will assign
                     an arbitrary unused port.
+  -m                Enables management API.
+                    address and port can be customized with:
+                    --management-address <address> and
+                    --management-port <port>
+                    respectively.
+                    Default address and port values are 0.0.0.0 and 9000.
+  --management-address <address>
+                    Address on which the management server will listen for
+                    connections.
+                    Note: Enables management API (-m is redundant).
+  --management-port <port>
+                    TCP port on which the management server will listen for
+                    connections.
+                    Note: Enables management API (-m is redundant).
   --jwk <filename>  Adds a JSON-formatted key to the server's keystore.
                     Can be specified many times.
   --pem <filename>  Adds a PEM-encoded key to the server's keystore.
@@ -153,8 +189,33 @@ function savePEM(keys) {
   });
 }
 
+const serverSymbol = Symbol('server');
+const managerServerSymbol = Symbol('managerServer');
+
+class RunningMockServer {
+  constructor(server, managerServer) {
+    this[serverSymbol] = server;
+    this[managerServerSymbol] = managerServer;
+  }
+
+  stop() {
+    this[serverSymbol].stop();
+    if (typeof this[managerServerSymbol] === 'object') {
+      this[managerServerSymbol].stop();
+    }
+  }
+
+  get issuer() {
+    return this[serverSymbol].issuer;
+  }
+}
+
 async function startServer(opts) {
   const server = new OAuth2Server();
+  let managementServer;
+  if (opts.management.enabled) {
+    managementServer = new ManagementServer(server.service);
+  }
 
   await Promise.all(opts.keys.map(async (key) => {
     let jwk;
@@ -182,6 +243,11 @@ async function startServer(opts) {
     savePEM(opts.keys);
   }
 
+  if (opts.management.enabled) {
+    console.log('Starting Management API for OAuth 2 server');
+    await managementServer.start(opts.management.port, opts.management.host);
+  }
+  console.log('Starting OAuth 2 server');
   await server.start(opts.port, opts.host);
 
   const addr = server.address();
@@ -193,7 +259,11 @@ async function startServer(opts) {
   process.once('SIGINT', async () => {
     await server.stop();
     console.log('OAuth 2 server has been stopped.');
+    if (opts.management.enabled) {
+      await managementServer.stop();
+      console.log('Management server has been stopped.');
+    }
   });
 
-  return server;
+  return new RunningMockServer(server, managementServer);
 }
