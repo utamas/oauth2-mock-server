@@ -220,7 +220,8 @@ Prescribed username will be used until it's explicitly cleared by making a `DELE
 Payload:
 ```json
 {
-  "username": "janedoe"
+  "username": "janedoe",
+  "email": "janedoe@some.org"
 }
 ```
 
